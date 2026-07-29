@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastapi-auth-openid-federated"
+version = "0.1.0.dev0"
+description = "Federated OpenID Connect Relying Party for FastAPI (OpenID Federation 1.0)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0 OR EUPL-1.2"
+license-files = ["LICENSE-APACHE", "LICENSE-EUPL"]
+authors = [{ name = "Alexander Loechel", email = "Alexander.Loechel@lmu.de" }]
+keywords = ["openid", "oidc", "openid-federation", "fastapi", "sso", "federation", "eduperson"]
+classifiers = [
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "anyio>=4",
+    "respx>=0.21",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "ty",
+    "pdbp>=1.5",
+]
+
+[project.urls]
+Repository = "https://github.com/edutap-collective/fastapi-auth-openid-federated"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fastapi_auth*"]
+namespaces = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "I", "D", "S"]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
