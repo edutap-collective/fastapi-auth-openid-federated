@@ -4,13 +4,13 @@ install:
 	uv pip install -U -e ".[dev]"
 
 lint:
-	uv run ruff check .
-	uv run ruff format --check .
+	uv run ruff check src tests
+	uv run ruff format --check src tests
 	uv run ty check src tests
 
 reformat:
-	uv run ruff format .
-	uv run ruff check --fix .
+	uv run ruff format src tests
+	uv run ruff check --fix src tests
 
 test-local:
 	uv run pytest
