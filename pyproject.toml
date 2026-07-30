@@ -1,6 +1,7 @@
 [build-system]
 requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
+include-package-data = true
 
 [project]
 name = "fastapi-auth-openid-federated"
@@ -52,6 +53,9 @@ Repository = "https://github.com/edutap-collective/fastapi-auth-openid-federated
 where = ["src"]
 include = ["fastapi_auth*"]
 namespaces = true
+
+[tool.setuptools.package-data]
+"fastapi_auth.openid.discovery" = ["templates/*.html"]
 
 [tool.ruff]
 line-length = 100

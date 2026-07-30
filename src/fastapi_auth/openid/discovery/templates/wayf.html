@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Select your OpenID Provider</title>
+  </head>
+  <body>
+    <h1>Select your OpenID Provider</h1>
+    <ul>
+      {% for op in ops %}
+      <li><a href="{{ op.href }}">{{ op.display_name }}</a></li>
+      {% endfor %}
+    </ul>
+  </body>
+</html>
