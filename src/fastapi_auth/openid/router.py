@@ -69,7 +69,16 @@ def build_router(rp: OidcRP) -> APIRouter:
         return RedirectResponse(redirect.url, status_code=303)
 
     @router.get("/callback")
-    async def callback(request: Request, state: str, code: str = "") -> Response:
+    async def callback(
+        request: Request,
+        state: str,
+        code: str = "",
+        error: str = "",
+        error_description: str = "",
+    ) -> Response:
+        if error:
+            detail = f"OpenID Provider returned an error: {error} {error_description}".strip()
+            raise HTTPException(status_code=400, detail=detail)
         login_state = rp.state_store.pop(state, now=rp.clock())
         if login_state is None:
             raise HTTPException(status_code=400, detail="unknown or expired login state")

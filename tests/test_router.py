@@ -156,3 +156,56 @@ def test_login_explicit_op_overrides_embedded():
         client = TestClient(app)
         resp = client.get(f"/openid/login?op={OP_ENTITY}&next=/app", follow_redirects=False)
     assert resp.status_code == 303  # went straight to login, not the WAYF page
+
+
+def test_callback_surfaces_op_error():
+    op = OpFixture()
+    rp = _rp(op)
+    app = FastAPI()
+    rp.mount(app)
+    client = TestClient(app)
+    resp = client.get(
+        "/openid/callback?state=whatever&error=access_denied&error_description=nope",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "access_denied" in resp.text
+
+
+def test_callback_unknown_state_is_400():
+    op = OpFixture()
+    rp = _rp(op)
+    app = FastAPI()
+    rp.mount(app)
+    client = TestClient(app)
+    resp = client.get("/openid/callback?state=unknown&code=c", follow_redirects=False)
+    assert resp.status_code == 400
+
+
+def test_callback_missing_code_is_400():
+    op = OpFixture()
+    rp = _rp(op)
+    app = FastAPI()
+    rp.mount(app)
+    with respx.mock(assert_all_called=False) as router:
+        op.mount(router)
+        client = TestClient(app)
+        client.get(f"/openid/login?op={OP_ENTITY}&next=/app", follow_redirects=False)
+        state_value = next(iter(rp.state_store._entries))  # noqa: SLF001
+        resp = client.get(f"/openid/callback?state={state_value}", follow_redirects=False)
+    assert resp.status_code == 400
+
+
+def test_callback_token_failure_is_401():
+    op = OpFixture()
+    rp = _rp(op)
+    app = FastAPI()
+    rp.mount(app)
+    with respx.mock(assert_all_called=False) as router:
+        op.mount(router)
+        client = TestClient(app)
+        client.get(f"/openid/login?op={OP_ENTITY}&next=/app", follow_redirects=False)
+        state_value = next(iter(rp.state_store._entries))  # noqa: SLF001
+        router.post(f"{OP_ENTITY}/token").respond(400, json={"error": "invalid_grant"})
+        resp = client.get(f"/openid/callback?code=c&state={state_value}", follow_redirects=False)
+    assert resp.status_code == 401

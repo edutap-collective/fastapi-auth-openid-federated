@@ -53,7 +53,12 @@ class CookieBackend:
         sid = self._read_sid(request)
         if sid is not None:
             await self._store.delete_session(sid)
-        response.delete_cookie(self._settings.session_cookie_name)
+        response.delete_cookie(
+            self._settings.session_cookie_name,
+            httponly=True,
+            secure=self._settings.cookie_secure,
+            samesite="lax",
+        )
 
     def _read_sid(self, request: Request) -> str | None:
         """Read and verify the signed session id from the cookie."""
