@@ -20,6 +20,7 @@ import httpx
 
 from fastapi_auth.openid.federation import entity_statement as es
 from fastapi_auth.openid.federation import fetch, jose
+from fastapi_auth.openid.federation import metadata_policy as mp
 from fastapi_auth.openid.federation.errors import EntityStatementError, FetchError, TrustChainError
 
 
@@ -192,3 +193,113 @@ def validate_trust_chain(
         trust_anchor_id=anchor_id,
         exp=chain_exp,
     )
+
+
+@dataclass(frozen=True)
+class ResolvedEntity:
+    """A trusted entity with policy-resolved metadata for one entity type."""
+
+    entity_id: str
+    entity_type: str
+    metadata: dict[str, object]
+    trust_anchor_id: str
+    exp: int
+    chain: ValidatedChain
+
+
+def _leaf_metadata(chain: ValidatedChain, entity_type: str) -> dict[str, object]:
+    metadata = chain.leaf.get("metadata")
+    base: dict[str, object] = {}
+    if isinstance(metadata, dict):
+        entity_metadata = metadata.get(entity_type)
+        if isinstance(entity_metadata, dict):
+            base = dict(cast("dict[str, object]", entity_metadata))
+    # Section 6.1.4.2 step 1: a subordinate statement's `metadata` overrides the leaf's.
+    for statement in chain.subordinate_statements:
+        override = statement.get("metadata")
+        if isinstance(override, dict):
+            entity_override = override.get(entity_type)
+            if isinstance(entity_override, dict):
+                base.update(cast("dict[str, object]", entity_override))
+    return base
+
+
+def resolve_metadata(
+    chain: ValidatedChain, *, entity_type: str = "openid_provider"
+) -> dict[str, object]:
+    """Apply subordinate metadata overrides + merged policy to the leaf metadata."""
+    base = _leaf_metadata(chain, entity_type)
+    if not base:
+        raise TrustChainError(f"no {entity_type!r} metadata in the trust chain leaf")
+
+    # Collect policies from the chain, ordered Trust Anchor -> leaf (reverse of leaf-first).
+    critical: list[str] = []
+    policies: list[dict[str, object]] = []
+    for statement in reversed(chain.subordinate_statements):
+        crit = statement.get("metadata_policy_crit")
+        if isinstance(crit, list):
+            critical.extend(str(name) for name in crit)
+        policy = statement.get("metadata_policy")
+        if isinstance(policy, dict):
+            policies.append(cast("dict[str, object]", policy))
+
+    if not policies:
+        return base
+
+    merged = mp.merge_policies(policies, critical_operators=critical)
+    entity_policy = merged.get(entity_type)
+    if not isinstance(entity_policy, dict):
+        return base
+    return mp.apply_policy(base, cast("dict[str, object]", entity_policy))
+
+
+async def resolve_and_validate(
+    client: httpx.AsyncClient,
+    entity_id: str,
+    trust_anchors: Mapping[str, dict[str, object]],
+    *,
+    entity_type: str = "openid_provider",
+    algorithms: Sequence[str] = jose.DEFAULT_SIGNING_ALGORITHMS,
+    leeway: int = 0,
+    now: int | None = None,
+    max_depth: int = 10,
+) -> ResolvedEntity:
+    """Resolve, validate and policy-resolve an entity's metadata end to end."""
+    chain_tokens = await resolve_trust_chain(
+        client, entity_id, list(trust_anchors), max_depth=max_depth
+    )
+    validated = validate_trust_chain(
+        chain_tokens, trust_anchors, algorithms=algorithms, leeway=leeway, now=now
+    )
+    metadata = resolve_metadata(validated, entity_type=entity_type)
+    return ResolvedEntity(
+        entity_id=entity_id,
+        entity_type=entity_type,
+        metadata=metadata,
+        trust_anchor_id=validated.trust_anchor_id,
+        exp=validated.exp,
+        chain=validated,
+    )
+
+
+class TrustChainCache:
+    """A minimal in-memory cache keyed by entity id, honoring the chain exp."""
+
+    def __init__(self) -> None:
+        """Create an empty cache."""
+        self._entries: dict[str, ResolvedEntity] = {}
+
+    def get(self, entity_id: str, *, now: int | None = None) -> ResolvedEntity | None:
+        """Return the cached entity, evicting and returning ``None`` if it has expired."""
+        moment = jose.now_epoch() if now is None else now
+        resolved = self._entries.get(entity_id)
+        if resolved is None:
+            return None
+        if resolved.exp <= moment:
+            self._entries.pop(entity_id, None)
+            return None
+        return resolved
+
+    def set(self, resolved: ResolvedEntity) -> None:
+        """Store (or replace) the cache entry for ``resolved.entity_id``."""
+        self._entries[resolved.entity_id] = resolved
