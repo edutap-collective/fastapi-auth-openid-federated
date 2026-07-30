@@ -24,6 +24,7 @@ def _rp(op: OpFixture, on_auth=None) -> OidcRP:
         authority_hints=["https://ta.example"],
         trust_anchors=op.trust_anchors(),
         allowed_redirect_hosts=[],
+        session_secret="s" * 32,
     )
     # Inject a fixed clock consistent with OpFixture(now=NOW) so exp/iat checks pass.
     return OidcRP(settings, on_authenticated=on_auth, clock=lambda: NOW + 10)

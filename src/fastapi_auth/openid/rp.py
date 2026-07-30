@@ -1,8 +1,9 @@
-"""OidcRP facade: wires settings, federation keys, login state and router.
+"""OidcRP facade: wires settings, federation keys, session and router.
 
-Composition root for one configured relying party. The user-session layer is
-Plan 4; until then the callback delegates to a pluggable ``on_authenticated``
-seam (default: redirect to the validated ``next`` target).
+Composition root for one configured relying party. The user-session layer
+(store + backend, selected via ``factory.py``) is established on a
+successful callback through a pluggable ``on_authenticated`` seam (default:
+establish the session, then redirect to the validated ``next`` target).
 
 SPDX-License-Identifier: Apache-2.0 OR EUPL-1.2
 """
@@ -13,10 +14,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from joserfc.jwk import Key, KeySet
 
+from fastapi_auth.openid.factory import make_backend, make_store
 from fastapi_auth.openid.federation import jose
 from fastapi_auth.openid.identity.identifier import select_identifier
 from fastapi_auth.openid.identity.model import FederatedIdentity
@@ -51,7 +53,7 @@ class OidcRP:
         http_client: httpx.AsyncClient | None = None,
         clock: Callable[[], int] | None = None,
     ) -> None:
-        """Build federation keys, the login-state store and the router from settings."""
+        """Build federation keys, login-state, session store/backend and router."""
         self.settings = settings
         # Package-internal but attribute-public (no leading underscore) so the
         # router factory can read them without triggering ruff SLF001.
@@ -67,6 +69,8 @@ class OidcRP:
             else httpx.AsyncClient(timeout=_DEFAULT_HTTP_TIMEOUT)
         )
         self.clock = clock if clock is not None else jose.now_epoch
+        self.store = make_store(settings)
+        self.backend = make_backend(settings, self.store)
         self.on_authenticated = on_authenticated or self._default_on_authenticated
         self.router = build_router(self)
 
@@ -74,7 +78,9 @@ class OidcRP:
         self, request: Request, identity: FederatedIdentity, next_url: str
     ) -> Response:
         target = is_safe_redirect(next_url, self.settings.allowed_redirect_hosts)
-        return RedirectResponse(target, status_code=303)
+        response = RedirectResponse(target, status_code=303)
+        await self.backend.establish(identity, response)
+        return response
 
     def identifier(self, identity: FederatedIdentity) -> str | None:
         """Return this RP's chosen stable identifier (sub, with fallbacks)."""
@@ -90,9 +96,31 @@ class OidcRP:
         """
         app.include_router(self.router, prefix=self.settings.mount_path, **kwargs)
 
+    def optional_user(self) -> Callable[[Request], Awaitable[FederatedIdentity | None]]:
+        """Dependency returning the FederatedIdentity or None."""
+
+        async def _dep(request: Request) -> FederatedIdentity | None:
+            return await self.backend.load(request)
+
+        return _dep
+
+    def current_user(self) -> Callable[[Request], Awaitable[FederatedIdentity]]:
+        """Dependency returning the FederatedIdentity or raising 401."""
+
+        async def _dep(request: Request) -> FederatedIdentity:
+            identity = await self.backend.load(request)
+            if identity is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+                )
+            return identity
+
+        return _dep
+
     async def aclose(self) -> None:
-        """Close the shared httpx client (call from a FastAPI lifespan shutdown)."""
+        """Close the shared httpx client and the session store."""
         await self.http_client.aclose()
+        await self.store.aclose()
 
 
 __all__ = ["OidcRP"]
