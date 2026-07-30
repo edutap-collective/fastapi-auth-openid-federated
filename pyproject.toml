@@ -1,7 +1,6 @@
 [build-system]
 requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
-include-package-data = true
 
 [project]
 name = "fastapi-auth-openid-federated"
@@ -43,11 +42,15 @@ dev = [
     "ty",
     "pdbp>=1.5",
 ]
+docs = ["sphinx>=7", "myst-parser>=3", "furo>=2024.0"]
 redis = ["redis>=5"]
 postgres = ["sqlmodel>=0.0.22", "asyncpg>=0.29"]
 
 [project.urls]
 Repository = "https://github.com/edutap-collective/fastapi-auth-openid-federated"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -72,7 +75,8 @@ ignore = ["D203", "D213"]
 convention = "pep257"
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra -m 'not integration'"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = ["integration: needs live redis/postgres (make test-integration)"]

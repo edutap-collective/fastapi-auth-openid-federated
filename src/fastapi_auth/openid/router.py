@@ -100,8 +100,9 @@ def build_router(rp: OidcRP) -> APIRouter:
         return await rp.on_authenticated(request, identity, login_state.next_url)
 
     @router.get("/logout")
-    async def logout(request: Request, next: str = "/") -> Response:
-        safe_next = is_safe_redirect(next, settings.allowed_redirect_hosts)
+    async def logout(request: Request, next: str | None = None) -> Response:
+        target_next = next if next is not None else settings.post_logout_default
+        safe_next = is_safe_redirect(target_next, settings.allowed_redirect_hosts)
         identity = await rp.backend.load(request)
         op_url = await rp.op_logout_url(identity)
         target = op_url if op_url is not None else safe_next

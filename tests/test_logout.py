@@ -114,3 +114,14 @@ def test_well_known_publishes_post_logout_redirect_uris():
     metadata = cast(dict[str, Any], claims["metadata"])
     rp_meta = metadata["openid_relying_party"]
     assert rp_meta["post_logout_redirect_uris"] == [f"{RP_ENTITY}/openid/post-logout"]
+
+
+def test_logout_uses_post_logout_default_when_no_next():
+    op = OpFixture()
+    rp = _rp(op, post_logout_default="/goodbye")
+    app = FastAPI()
+    rp.mount(app)
+    client = TestClient(app)
+    resp = client.get("/openid/logout", follow_redirects=False)  # no ?next
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/goodbye"
