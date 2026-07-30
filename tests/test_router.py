@@ -209,3 +209,20 @@ def test_callback_token_failure_is_401():
         router.post(f"{OP_ENTITY}/token").respond(400, json={"error": "invalid_grant"})
         resp = client.get(f"/openid/callback?code=c&state={state_value}", follow_redirects=False)
     assert resp.status_code == 401
+
+
+def test_login_unreachable_op_is_502():
+    op = OpFixture()
+    rp = _rp(op)
+    app = FastAPI()
+    rp.mount(app)
+    with respx.mock(assert_all_called=False) as router:
+        op.mount(router)
+        # An OP whose entity configuration can't be fetched -> FederationError
+        # (FetchError) from resolve_and_validate. This must surface as 502, not 500.
+        router.get("https://broken.example/.well-known/openid-federation").respond(500)
+        client = TestClient(app)
+        resp = client.get(
+            "/openid/login?op=https://broken.example&next=/app", follow_redirects=False
+        )
+    assert resp.status_code == 502

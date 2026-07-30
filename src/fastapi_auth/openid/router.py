@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 
 from fastapi_auth.openid.discovery.embedded import render_wayf
 from fastapi_auth.openid.federation.entity_configuration import sign_rp_entity_configuration
+from fastapi_auth.openid.federation.errors import FederationError
 from fastapi_auth.openid.oidc import login
 from fastapi_auth.openid.oidc.errors import OidcError
 from fastapi_auth.openid.redirect import is_safe_redirect
@@ -66,7 +67,10 @@ def build_router(rp: OidcRP) -> APIRouter:
                 state_store=rp.state_store,
                 now=rp.clock(),
             )
-        except OidcError as exc:
+        except (OidcError, FederationError) as exc:
+            # OidcError (auth-request build) or FederationError (trust-chain
+            # resolution/validation of the OP) — the OP/upstream is at fault,
+            # so surface it as 502 rather than an unhandled 500.
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return RedirectResponse(redirect.url, status_code=303)
 
