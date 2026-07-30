@@ -16,3 +16,4 @@ docs/_build/
 uv.lock
 tests/keys/
 compose.override.yml
+.tox/
