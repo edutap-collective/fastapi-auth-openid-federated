@@ -10,6 +10,8 @@ SPDX-License-Identifier: Apache-2.0 OR EUPL-1.2
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -47,6 +49,30 @@ class OidcSettings(BaseSettings):
     # --- security ---
     allowed_redirect_hosts: list[str] = Field(default_factory=list)
 
+    # --- session ---
+    session_cookie_name: str = "fa_openid_session"
+    session_secret: str | None = None
+    session_ttl: int = 28800
+    cookie_secure: bool = True
+
+    # --- session backend / store selection ---
+    backend: Literal["cookie", "jwt"] = "cookie"
+    store: Literal["memory", "redis", "postgres"] = "memory"
+    redis_url: str = "redis://localhost:6379/0"
+    db_url: str = "sqlite+aiosqlite:///:memory:"
+
+    # --- JWT backend (opt-in; joserfc) ---
+    jwt_alg: str = "HS256"
+    jwt_ttl: int = 3600
+    jwt_secret: str | None = None
+    # Asymmetric jwt_alg (RS256, ES256, EdDSA, ...): sign with the first private
+    # key in jwt_jwks, verify with its public half — other services can verify
+    # without being able to mint tokens.
+    jwt_jwks: dict[str, object] | None = None
+    # Data minimisation: when set, only these FederatedIdentity field names are
+    # carried in the token's "attrs" claim.
+    jwt_attributes: list[str] | None = None
+
     @model_validator(mode="after")
     def _check_redirect_under_mount(self) -> OidcSettings:
         if not self.redirect_path.startswith(self.mount_path):
@@ -74,3 +100,31 @@ class OidcSettings(BaseSettings):
         """Absolute URL for a router path relative to ``mount_path``."""
         suffix = path if path.startswith("/") else f"/{path}"
         return f"{self._root}{self.mount_path}{suffix}"
+
+    def jwt_is_symmetric(self) -> bool:
+        """Return whether ``jwt_alg`` is a symmetric (HMAC) algorithm."""
+        return self.jwt_alg.startswith("HS")
+
+    @property
+    def jwt_signing_secret(self) -> str:
+        """Secret used to sign symmetric app JWTs (defaults to the session secret)."""
+        return self.jwt_secret or self.session_secret or ""
+
+    @model_validator(mode="after")
+    def _check_jwt_secret_strength(self) -> OidcSettings:
+        """Ensure the JWT backend has strong-enough key material.
+
+        Symmetric algorithms (HS*) need a shared secret of at least 32 bytes;
+        asymmetric algorithms need a ``jwt_jwks`` with a private key. Only
+        enforced when ``backend == "jwt"``.
+        """
+        if self.backend != "jwt":
+            return self
+        if self.jwt_is_symmetric():
+            if len(self.jwt_signing_secret.encode()) < 32:
+                raise ValueError(
+                    "JWT backend requires jwt_secret/session_secret of at least 32 bytes"
+                )
+        elif self.jwt_jwks is None:
+            raise ValueError("JWT backend with an asymmetric jwt_alg requires jwt_jwks")
+        return self

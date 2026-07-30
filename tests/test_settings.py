@@ -59,3 +59,53 @@ def test_lists_from_values():
     s = OidcSettings(**cast(dict[str, Any], {**_BASE, **extra}))
     assert s.scopes == ["openid"]
     assert s.allowed_redirect_hosts == ["rp.example"]
+
+
+def test_session_defaults():
+    s = OidcSettings(**_BASE)
+    assert s.session_cookie_name == "fa_openid_session"
+    assert s.session_ttl == 28800
+    assert s.cookie_secure is True
+    assert s.backend == "cookie"
+    assert s.store == "memory"
+    assert s.jwt_alg == "HS256"
+
+
+def test_jwt_symmetric_requires_strong_secret():
+    with pytest.raises(ValidationError, match="32"):
+        OidcSettings(**cast(dict[str, Any], {**_BASE, "backend": "jwt", "session_secret": "short"}))
+
+
+def test_jwt_symmetric_accepts_strong_secret():
+    data = cast(dict[str, Any], {**_BASE, "backend": "jwt", "session_secret": "s" * 32})
+    s = OidcSettings(**data)
+    assert s.backend == "jwt"
+    assert s.jwt_is_symmetric() is True
+    assert s.jwt_signing_secret == "s" * 32
+
+
+def test_jwt_secret_overrides_session_secret_for_signing():
+    data = cast(dict[str, Any], {**_BASE, "session_secret": "x" * 32, "jwt_secret": "y" * 40})
+    assert OidcSettings(**data).jwt_signing_secret == "y" * 40
+
+
+def test_jwt_asymmetric_requires_jwt_jwks():
+    with pytest.raises(ValidationError, match="jwt_jwks"):
+        OidcSettings(**cast(dict[str, Any], {**_BASE, "backend": "jwt", "jwt_alg": "RS256"}))
+
+
+def test_jwt_asymmetric_accepts_jwks():
+    data = cast(
+        dict[str, Any],
+        {**_BASE, "backend": "jwt", "jwt_alg": "RS256", "jwt_jwks": {"keys": [{"kty": "RSA"}]}},
+    )
+    s = OidcSettings(**data)
+    assert s.jwt_is_symmetric() is False
+
+
+def test_store_selection_fields():
+    s = OidcSettings(
+        **cast(dict[str, Any], {**_BASE, "store": "redis", "redis_url": "redis://h:6379/1"})
+    )
+    assert s.store == "redis"
+    assert s.redis_url == "redis://h:6379/1"
