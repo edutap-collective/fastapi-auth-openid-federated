@@ -16,8 +16,8 @@ from fastapi_auth.openid.rp import OidcRP
 from fastapi_auth.openid.settings import OidcSettings
 
 
-def _rp(op: OpFixture, on_auth=None) -> OidcRP:
-    settings = OidcSettings(
+def _rp(op: OpFixture, on_auth=None, **settings_over: Any) -> OidcRP:
+    base: dict[str, Any] = dict(
         entity_id=RP_ENTITY,
         base_url=RP_ENTITY,
         fed_jwks=_priv(op),
@@ -26,6 +26,8 @@ def _rp(op: OpFixture, on_auth=None) -> OidcRP:
         allowed_redirect_hosts=[],
         session_secret="s" * 32,
     )
+    base.update(settings_over)
+    settings = OidcSettings(**base)
     # Inject a fixed clock consistent with OpFixture(now=NOW) so exp/iat checks pass.
     return OidcRP(settings, on_authenticated=on_auth, clock=lambda: NOW + 10)
 
@@ -102,3 +104,55 @@ def test_callback_invokes_on_authenticated():
     assert cb.status_code == 200
     assert captured["sub"] == "u1"
     assert captured["next"] == "/app"
+
+
+def test_login_passthrough_uses_fixed_op():
+    op = OpFixture()
+    rp = _rp(op, discovery_mode="passthrough", fixed_op_entity_id=OP_ENTITY)
+    app = FastAPI()
+    rp.mount(app)
+    with respx.mock(assert_all_called=False) as router:
+        op.mount(router)
+        client = TestClient(app)
+        resp = client.get("/openid/login?next=/app", follow_redirects=False)
+    assert resp.status_code == 303
+    assert urlparse(resp.headers["location"]).path == "/authorize"
+
+
+def test_login_passthrough_without_op_is_400():
+    op = OpFixture()
+    rp = _rp(op, discovery_mode="passthrough")  # no fixed_op_entity_id
+    app = FastAPI()
+    rp.mount(app)
+    client = TestClient(app)
+    resp = client.get("/openid/login?next=/app", follow_redirects=False)
+    assert resp.status_code == 400
+
+
+def test_login_embedded_renders_wayf_page():
+    op = OpFixture()
+    rp = _rp(
+        op,
+        discovery_mode="embedded",
+        op_list=[{"entity_id": OP_ENTITY, "display_name": "Example OP"}],
+    )
+    app = FastAPI()
+    rp.mount(app)
+    client = TestClient(app)
+    resp = client.get("/openid/login?next=/app", follow_redirects=False)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Example OP" in resp.text
+    assert "op=" in resp.text
+
+
+def test_login_explicit_op_overrides_embedded():
+    op = OpFixture()
+    rp = _rp(op, discovery_mode="embedded", op_list=[{"entity_id": OP_ENTITY, "display_name": "X"}])
+    app = FastAPI()
+    rp.mount(app)
+    with respx.mock(assert_all_called=False) as router:
+        op.mount(router)
+        client = TestClient(app)
+        resp = client.get(f"/openid/login?op={OP_ENTITY}&next=/app", follow_redirects=False)
+    assert resp.status_code == 303  # went straight to login, not the WAYF page

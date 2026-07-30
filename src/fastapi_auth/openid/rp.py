@@ -11,13 +11,16 @@ SPDX-License-Identifier: Apache-2.0 OR EUPL-1.2
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from joserfc.jwk import Key, KeySet
 
+from fastapi_auth.openid.discovery.embedded import OpChoice
 from fastapi_auth.openid.factory import make_backend, make_store
 from fastapi_auth.openid.federation import jose
 from fastapi_auth.openid.identity.identifier import select_identifier
@@ -29,6 +32,8 @@ from fastapi_auth.openid.settings import OidcSettings
 
 #: Default timeout for the RP-owned httpx.AsyncClient (connect+read+write+pool).
 _DEFAULT_HTTP_TIMEOUT = httpx.Timeout(10.0)
+
+_TEMPLATES_DIR = Path(__file__).parent / "discovery" / "templates"
 
 OnAuthenticated = Callable[[Request, FederatedIdentity, str], Awaitable[Response]]
 
@@ -71,6 +76,11 @@ class OidcRP:
         self.clock = clock if clock is not None else jose.now_epoch
         self.store = make_store(settings)
         self.backend = make_backend(settings, self.store)
+        # autoescape MUST stay on: the WAYF page renders untrusted OP display
+        # names / entity ids sourced from federation metadata.
+        self.jinja_env = Environment(
+            loader=FileSystemLoader(str(_TEMPLATES_DIR)), autoescape=select_autoescape()
+        )
         self.on_authenticated = on_authenticated or self._default_on_authenticated
         self.router = build_router(self)
 
@@ -85,6 +95,18 @@ class OidcRP:
     def identifier(self, identity: FederatedIdentity) -> str | None:
         """Return this RP's chosen stable identifier (sub, with fallbacks)."""
         return select_identifier(identity, "sub", ["eppn", "preferred_username"])
+
+    def op_choices(self) -> list[OpChoice]:
+        """Build the WAYF OP list from settings.op_list (display defaults to entity_id)."""
+        choices: list[OpChoice] = []
+        for entry in self.settings.op_list:
+            entity_id = entry.get("entity_id")
+            if not entity_id:
+                continue
+            choices.append(
+                OpChoice(entity_id=entity_id, display_name=entry.get("display_name") or entity_id)
+            )
+        return choices
 
     def mount(self, app: FastAPI, **kwargs: Any) -> None:
         """Include this RP's router under ``settings.mount_path``.

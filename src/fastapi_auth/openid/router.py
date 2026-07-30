@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
+from fastapi_auth.openid.discovery.embedded import render_wayf
 from fastapi_auth.openid.federation.entity_configuration import sign_rp_entity_configuration
 from fastapi_auth.openid.oidc import login
 from fastapi_auth.openid.oidc.errors import OidcError
@@ -40,14 +41,25 @@ def build_router(rp: OidcRP) -> APIRouter:
         return Response(token, media_type=_ENTITY_STATEMENT_MEDIA_TYPE)
 
     @router.get("/login")
-    async def login_endpoint(op: str, next: str = "/") -> Response:
+    async def login_endpoint(op: str | None = None, next: str = "/") -> Response:
         safe_next = is_safe_redirect(next, settings.allowed_redirect_hosts)
+        chosen_op = op
+        if chosen_op is None:
+            if settings.discovery_mode == "embedded":
+                html = render_wayf(
+                    rp.op_choices(), f"{settings.mount_path}/login", safe_next, rp.jinja_env
+                )
+                return Response(html, media_type="text/html")
+            # passthrough
+            if settings.fixed_op_entity_id is None:
+                raise HTTPException(status_code=400, detail="no OpenID Provider selected")
+            chosen_op = settings.fixed_op_entity_id
         try:
             redirect = await login.begin_login(
                 http_client=rp.http_client,
                 settings=settings,
                 fed_signing_key=rp.fed_key,
-                op_entity_id=op,
+                op_entity_id=chosen_op,
                 next_url=safe_next,
                 state_store=rp.state_store,
                 now=rp.clock(),
