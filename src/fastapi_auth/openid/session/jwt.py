@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 from fastapi import Request, Response
 from joserfc import jwt as jose_jwt
-from joserfc.errors import BadSignatureError, DecodeError, InvalidKeyIdError
+from joserfc.errors import JoseError
 from joserfc.jwk import Key, KeySet, OctKey
 
 from fastapi_auth.openid.federation import jose
@@ -93,7 +93,7 @@ class JWTBackend:
             return None
         try:
             decoded = jose_jwt.decode(token, self._verifying_key, algorithms=[self._alg])
-        except (BadSignatureError, DecodeError, InvalidKeyIdError, ValueError):
+        except (JoseError, ValueError):
             return None
         claims = decoded.claims
         moment = self._clock()

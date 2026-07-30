@@ -2,6 +2,8 @@
 
 import pytest
 from fastapi import Request, Response
+from joserfc import jwt as jose_jwt
+from joserfc.jwk import OctKey
 
 from fastapi_auth.openid.identity.model import FederatedIdentity
 from fastapi_auth.openid.session.jwt import JWTBackend
@@ -98,3 +100,18 @@ async def test_jwt_attributes_allowlist_restricts_attrs():
     assert loaded is not None
     assert loaded.sub == "u1"
     assert loaded.mail == []  # not carried
+
+
+@pytest.mark.asyncio
+async def test_alg_mismatch_returns_none():
+    settings = _settings()  # jwt_alg default HS256
+    backend = JWTBackend(settings)
+    key = OctKey.import_key("s" * 32)
+    # token signed under a DIFFERENT alg than the backend pins
+    forged = jose_jwt.encode(
+        {"alg": "HS384", "typ": "JWT"},
+        {"sub": "x", "exp": 9999999999, "attrs": {}},
+        key,
+        algorithms=["HS384"],
+    )
+    assert await backend.load(_bearer_request(forged)) is None
