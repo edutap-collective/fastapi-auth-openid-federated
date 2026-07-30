@@ -49,6 +49,18 @@ class OidcSettings(BaseSettings):
     # --- security ---
     allowed_redirect_hosts: list[str] = Field(default_factory=list)
 
+    # --- discovery ---
+    discovery_mode: Literal["passthrough", "embedded"] = "passthrough"
+    fixed_op_entity_id: str | None = None
+    # Static WAYF entries for embedded discovery: [{"entity_id": ..., "display_name": ...}]
+    op_list: list[dict[str, str]] = Field(default_factory=list)
+
+    # --- logout ---
+    logout_path: str = "/openid/logout"
+    post_logout_redirect_uris: list[str] = Field(default_factory=list)
+    post_logout_default: str = "/"
+    enable_op_logout: bool = False
+
     # --- session ---
     session_cookie_name: str = "fa_openid_session"
     session_secret: str | None = None
@@ -79,6 +91,14 @@ class OidcSettings(BaseSettings):
             raise ValueError(
                 f"redirect_path {self.redirect_path!r} must start with "
                 f"mount_path {self.mount_path!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_logout_under_mount(self) -> OidcSettings:
+        if not self.logout_path.startswith(self.mount_path):
+            raise ValueError(
+                f"logout_path {self.logout_path!r} must start with mount_path {self.mount_path!r}"
             )
         return self
 

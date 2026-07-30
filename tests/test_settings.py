@@ -145,3 +145,38 @@ def test_jwt_alg_normal_values_still_work():
     )
     s_rs = OidcSettings(**data_rs)
     assert s_rs.jwt_alg == "RS256"
+
+
+def test_discovery_defaults():
+    s = OidcSettings(**_BASE)
+    assert s.discovery_mode == "passthrough"
+    assert s.fixed_op_entity_id is None
+    assert s.op_list == []
+
+
+def test_logout_defaults():
+    s = OidcSettings(**_BASE)
+    assert s.logout_path == "/openid/logout"
+    assert s.post_logout_default == "/"
+    assert s.post_logout_redirect_uris == []
+    assert s.enable_op_logout is False
+
+
+def test_logout_path_must_be_under_mount():
+    with pytest.raises(ValidationError, match="mount_path"):
+        OidcSettings(**cast(dict[str, Any], {**_BASE, "logout_path": "/elsewhere/logout"}))
+
+
+def test_embedded_op_list_from_values():
+    s = OidcSettings(
+        **cast(
+            dict[str, Any],
+            {
+                **_BASE,
+                "discovery_mode": "embedded",
+                "op_list": [{"entity_id": "https://op.example", "display_name": "Example OP"}],
+            },
+        )
+    )
+    assert s.discovery_mode == "embedded"
+    assert s.op_list[0]["display_name"] == "Example OP"
