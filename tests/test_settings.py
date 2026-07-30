@@ -109,3 +109,39 @@ def test_store_selection_fields():
     )
     assert s.store == "redis"
     assert s.redis_url == "redis://h:6379/1"
+
+
+def test_jwt_alg_none_raises_validation_error():
+    """Verify that jwt_alg='none' is rejected, even with jwt_jwks present."""
+    data = cast(
+        dict[str, Any],
+        {**_BASE, "backend": "jwt", "jwt_alg": "none", "jwt_jwks": {"keys": [{"kty": "RSA"}]}},
+    )
+    with pytest.raises(ValidationError, match="none"):
+        OidcSettings(**data)
+
+
+def test_jwt_alg_empty_string_raises_validation_error():
+    """Verify that an empty jwt_alg string is rejected."""
+    data = cast(
+        dict[str, Any],
+        {**_BASE, "backend": "jwt", "jwt_alg": "", "session_secret": "s" * 32},
+    )
+    with pytest.raises(ValidationError, match="none"):
+        OidcSettings(**data)
+
+
+def test_jwt_alg_normal_values_still_work():
+    """Guard test: ensure normal jwt_alg values (HS256, RS256) still validate."""
+    # HS256 (symmetric, already tested elsewhere but good to have in guard)
+    data_hs = cast(dict[str, Any], {**_BASE, "backend": "jwt", "session_secret": "s" * 32})
+    s_hs = OidcSettings(**data_hs)
+    assert s_hs.jwt_alg == "HS256"
+
+    # RS256 (asymmetric)
+    data_rs = cast(
+        dict[str, Any],
+        {**_BASE, "backend": "jwt", "jwt_alg": "RS256", "jwt_jwks": {"keys": [{"kty": "RSA"}]}},
+    )
+    s_rs = OidcSettings(**data_rs)
+    assert s_rs.jwt_alg == "RS256"

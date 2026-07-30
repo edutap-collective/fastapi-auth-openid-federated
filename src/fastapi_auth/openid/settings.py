@@ -111,6 +111,17 @@ class OidcSettings(BaseSettings):
         return self.jwt_secret or self.session_secret or ""
 
     @model_validator(mode="after")
+    def _check_jwt_alg_not_none(self) -> OidcSettings:
+        """Reject unsigned JWT algorithms.
+
+        The jwt_alg must not be 'none' or empty, as unsigned tokens are
+        forgeable and pose a critical security risk.
+        """
+        if self.jwt_alg.strip().lower() in {"none", ""}:
+            raise ValueError("jwt_alg must not be 'none' (unsigned tokens are forbidden)")
+        return self
+
+    @model_validator(mode="after")
     def _check_jwt_secret_strength(self) -> OidcSettings:
         """Ensure the JWT backend has strong-enough key material.
 
