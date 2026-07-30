@@ -11,9 +11,13 @@ from __future__ import annotations
 from fastapi_auth.openid.identity.identifier import select_identifier
 from fastapi_auth.openid.identity.mapper import map_claims
 from fastapi_auth.openid.identity.model import FederatedIdentity
+from fastapi_auth.openid.rp import OidcRP
+from fastapi_auth.openid.settings import OidcSettings
 
 __all__ = [
     "FederatedIdentity",
+    "OidcRP",
+    "OidcSettings",
     "__version__",
     "map_claims",
     "select_identifier",
