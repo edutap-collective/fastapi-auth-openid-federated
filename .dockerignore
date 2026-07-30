@@ -1,0 +1,11 @@
+.git
+.venv
+dist
+build
+*.egg-info
+__pycache__
+.superpowers
+docs/_build
+.tox
+.ruff_cache
+.pytest_cache
