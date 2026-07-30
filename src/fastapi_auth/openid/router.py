@@ -1,0 +1,79 @@
+"""FastAPI router factory for the OpenID Connect relying-party endpoints.
+
+SPDX-License-Identifier: Apache-2.0 OR EUPL-1.2
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
+
+from fastapi_auth.openid.federation.entity_configuration import sign_rp_entity_configuration
+from fastapi_auth.openid.oidc import login
+from fastapi_auth.openid.oidc.errors import OidcError
+from fastapi_auth.openid.redirect import is_safe_redirect
+
+if TYPE_CHECKING:
+    from fastapi_auth.openid.rp import OidcRP
+
+_ENTITY_STATEMENT_MEDIA_TYPE = "application/entity-statement+jwt"
+
+
+def build_router(rp: OidcRP) -> APIRouter:
+    """Build the well-known/login/callback routes bound to this OidcRP."""
+    router = APIRouter()
+    settings = rp.settings
+
+    @router.get("/.well-known/openid-federation")
+    async def entity_configuration() -> Response:
+        rp_metadata = dict(settings.rp_metadata)
+        rp_metadata.setdefault("redirect_uris", [settings.callback_url])
+        token = sign_rp_entity_configuration(
+            entity_id=settings.entity_id,
+            fed_jwks_public=rp.fed_public,
+            fed_signing_key=rp.fed_key,
+            authority_hints=settings.authority_hints,
+            rp_metadata=rp_metadata,
+        )
+        return Response(token, media_type=_ENTITY_STATEMENT_MEDIA_TYPE)
+
+    @router.get("/login")
+    async def login_endpoint(op: str, next: str = "/") -> Response:
+        safe_next = is_safe_redirect(next, settings.allowed_redirect_hosts)
+        try:
+            redirect = await login.begin_login(
+                http_client=rp.http_client,
+                settings=settings,
+                fed_signing_key=rp.fed_key,
+                op_entity_id=op,
+                next_url=safe_next,
+                state_store=rp.state_store,
+                now=rp.clock(),
+            )
+        except OidcError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return RedirectResponse(redirect.url, status_code=303)
+
+    @router.get("/callback")
+    async def callback(request: Request, state: str, code: str = "") -> Response:
+        login_state = rp.state_store.pop(state, now=rp.clock())
+        if login_state is None:
+            raise HTTPException(status_code=400, detail="unknown or expired login state")
+        if not code:
+            raise HTTPException(status_code=400, detail="missing authorization code")
+        try:
+            identity = await login.complete_login(
+                http_client=rp.http_client,
+                settings=settings,
+                fed_signing_key=rp.fed_key,
+                login_state=login_state,
+                code=code,
+                now=rp.clock(),
+            )
+        except OidcError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return await rp.on_authenticated(request, identity, login_state.next_url)
+
+    return router
