@@ -16,4 +16,10 @@ test-local:
 	uv run pytest
 
 test-integration:
-	@echo "Integrationstests kommen in einem spaeteren Meilenstein (compose)."
+	docker compose up -d --wait
+	IT_REDIS_URL=redis://localhost:6379/0 \
+	IT_DB_URL=postgresql+asyncpg://postgres:pw@localhost:5432/fa \
+	uv run pytest -m integration -v; \
+	status=$$?; \
+	docker compose down -v; \
+	exit $$status
