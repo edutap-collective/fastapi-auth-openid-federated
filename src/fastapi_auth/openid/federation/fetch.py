@@ -59,3 +59,26 @@ async def fetch_subordinate_statement(
         ) from exc
     _check_content_type(response)
     return response.text
+
+
+async def list_subordinates(
+    client: httpx.AsyncClient,
+    list_endpoint: str,
+    *,
+    entity_type: str | None = None,
+) -> list[str]:
+    """List a superior's subordinate entity identifiers (Section 8.2).
+
+    Optionally filtered to one ``entity_type`` (e.g. ``openid_provider``). The
+    response is a JSON array of entity identifier strings.
+    """
+    params = {"entity_type": entity_type} if entity_type is not None else None
+    try:
+        response = await client.get(list_endpoint, params=params)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise FetchError(f"failed to list subordinates from {list_endpoint}: {exc}") from exc
+    data = response.json()
+    if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+        raise FetchError(f"list endpoint {list_endpoint} did not return a JSON array of strings")
+    return data
