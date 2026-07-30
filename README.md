@@ -36,7 +36,7 @@ rp.mount(app)
 # Protect a route with `Depends(rp.current_user())`
 @app.get("/protected")
 async def protected_route(identity = Depends(rp.current_user())):
-    return {"sub": identity.sub, "email": identity.email}
+    return {"sub": identity.sub, "mail": identity.mail}
 
 # Optional: get authenticated user or None
 @app.get("/maybe-protected")
