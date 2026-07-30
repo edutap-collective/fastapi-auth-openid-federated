@@ -58,7 +58,9 @@ Ohne Autoescape könnte ein bösartig benannter OP-Eintrag (etwa ein `display_na
 
 ## Best-effort Logout
 
-`/logout` löscht immer zuerst die lokale Session (`backend.revoke()`).
+Die lokale Session wird in jedem Fall widerrufen — unabhängig vom Ausgang des optionalen OP-Logouts.
+Der Ablauf: Die Identität wird geladen (für den optionalen `end_session_endpoint`-Redirect wird ihr `iss` gebraucht), die Redirect-Antwort gebaut, und zuletzt `backend.revoke()` auf dieser Antwort aufgerufen.
+Da `revoke()` bedingungslos läuft, kann ein fehlender oder fehlgeschlagener OP-Logout das lokale Ausloggen nie verhindern.
 Ist `enable_op_logout` aktiviert, versucht `OidcRP.op_logout_url()` zusätzlich, den `end_session_endpoint` des OP über eine frische Trust-Chain-Auflösung zu ermitteln und dorthin weiterzuleiten.
 Jeder Fehler in diesem zusätzlichen Schritt — nicht erreichbarer OP, gebrochene Trust Chain, fehlender `end_session_endpoint` — wird abgefangen und führt zu einem lokalen Logout statt zu einem Fehler.
 Diese Entscheidung ist bewusst: Der lokale Schutz der eigenen Anwendung (keine gültige Session mehr) darf niemals von der Erreichbarkeit oder dem Wohlverhalten eines externen OP abhängen.
