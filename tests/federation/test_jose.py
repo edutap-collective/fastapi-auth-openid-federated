@@ -59,3 +59,21 @@ def test_peek_claims_is_unverified_read():
     peeked = jose.peek_claims(token)
     assert peeked["iss"] == "leaf"
     assert peeked["authority_hints"] == ["ta"]
+
+
+def test_verify_empty_algorithms_raises_signature_error():
+    """Verify that empty algorithms list raises SignatureError (fail-closed)."""
+    key = _rsa("signer")
+    token = jose.sign_entity_statement({"iss": "x", "sub": "x"}, key)
+    with pytest.raises(SignatureError, match="no signing algorithms permitted"):
+        jose.verify_signature(token, key, algorithms=[])
+
+
+def test_verify_unsupported_algorithm_raises_signature_error():
+    """Verify that a token signed with an alg outside the pinned set raises SignatureError."""
+    key_es = ECKey.generate_key(crv="P-256", parameters={"kid": "es-signer"}, private=True)
+    # Sign with ES256 (ECDSA)
+    token = jose.sign_entity_statement({"iss": "x", "sub": "x"}, key_es)
+    # Try to verify with RS256 only (should fail because token is ES256)
+    with pytest.raises(SignatureError):
+        jose.verify_signature(token, key_es, algorithms=["RS256"])

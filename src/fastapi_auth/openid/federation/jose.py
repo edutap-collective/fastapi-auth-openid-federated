@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from joserfc import jwt
-from joserfc.errors import BadSignatureError, InvalidKeyIdError
+from joserfc.errors import BadSignatureError, InvalidKeyIdError, UnsupportedAlgorithmError
 from joserfc.jwk import Key, KeySet, KeySetSerialization
 
 from fastapi_auth.openid.federation.errors import SignatureError
@@ -92,9 +92,11 @@ def verify_signature(
     Raises ``SignatureError`` on a bad signature or when no key in a KeySet
     matches the token's ``kid``. Does NOT validate ``exp``/``iat``.
     """
+    if not algorithms:
+        raise SignatureError("no signing algorithms permitted")
     try:
         result = jwt.decode(token, key, algorithms=list(algorithms))
-    except (BadSignatureError, InvalidKeyIdError) as exc:
+    except (BadSignatureError, InvalidKeyIdError, UnsupportedAlgorithmError) as exc:
         raise SignatureError(str(exc)) from exc
     return dict(result.claims)
 
