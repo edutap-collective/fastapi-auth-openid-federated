@@ -31,6 +31,8 @@ def build_router(rp: OidcRP) -> APIRouter:
     async def entity_configuration() -> Response:
         rp_metadata = dict(settings.rp_metadata)
         rp_metadata.setdefault("redirect_uris", [settings.callback_url])
+        if settings.post_logout_redirect_uris:
+            rp_metadata.setdefault("post_logout_redirect_uris", settings.post_logout_redirect_uris)
         token = sign_rp_entity_configuration(
             entity_id=settings.entity_id,
             fed_jwks_public=rp.fed_public,
@@ -96,5 +98,15 @@ def build_router(rp: OidcRP) -> APIRouter:
         except OidcError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
         return await rp.on_authenticated(request, identity, login_state.next_url)
+
+    @router.get("/logout")
+    async def logout(request: Request, next: str = "/") -> Response:
+        safe_next = is_safe_redirect(next, settings.allowed_redirect_hosts)
+        identity = await rp.backend.load(request)
+        op_url = await rp.op_logout_url(identity)
+        target = op_url if op_url is not None else safe_next
+        response = RedirectResponse(target, status_code=303)
+        await rp.backend.revoke(request, response)
+        return response
 
     return router

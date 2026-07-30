@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, status
@@ -23,6 +24,8 @@ from joserfc.jwk import Key, KeySet
 from fastapi_auth.openid.discovery.embedded import OpChoice
 from fastapi_auth.openid.factory import make_backend, make_store
 from fastapi_auth.openid.federation import jose
+from fastapi_auth.openid.federation.errors import FederationError
+from fastapi_auth.openid.federation.trust_chain import resolve_and_validate
 from fastapi_auth.openid.identity.identifier import select_identifier
 from fastapi_auth.openid.identity.model import FederatedIdentity
 from fastapi_auth.openid.login_state import LoginStateStore
@@ -138,6 +141,43 @@ class OidcRP:
             return identity
 
         return _dep
+
+    async def op_logout_url(self, identity: FederatedIdentity | None) -> str | None:
+        """Best-effort end_session_endpoint URL for the identity's OP, or None.
+
+        Returns None (→ local logout) unless op-logout is enabled, the identity
+        carries an ``iss``, a post_logout_redirect_uri is registered, and the OP
+        resolves to an ``end_session_endpoint``. Any federation failure falls
+        back to a local logout (this must never block clearing the session).
+        """
+        if not self.settings.enable_op_logout or identity is None:
+            return None
+        issuer = identity.iss
+        if not issuer or not self.settings.post_logout_redirect_uris:
+            return None
+        try:
+            resolved = await resolve_and_validate(
+                self.http_client,
+                issuer,
+                self.settings.trust_anchors,
+                entity_type="openid_provider",
+                leeway=self.settings.clock_skew,
+                now=self.clock(),
+            )
+        except FederationError:
+            # Best-effort logout: any resolution/validation failure → local logout.
+            return None
+        endpoint = resolved.metadata.get("end_session_endpoint")
+        if not isinstance(endpoint, str):
+            return None
+        query = urlencode(
+            {
+                "client_id": self.settings.entity_id,
+                "post_logout_redirect_uri": self.settings.post_logout_redirect_uris[0],
+            }
+        )
+        separator = "&" if "?" in endpoint else "?"
+        return f"{endpoint}{separator}{query}"
 
     async def aclose(self) -> None:
         """Close the shared httpx client and the session store."""

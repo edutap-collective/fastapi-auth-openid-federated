@@ -36,17 +36,19 @@ class OpFixture:
     ta_key: RSAKey = field(default_factory=lambda: _key("ta-fed"))
     rp_fed_key: RSAKey = field(default_factory=lambda: _key("rp-fed"))
     now: int = NOW
+    with_end_session: bool = False
 
     def op_metadata(self) -> dict[str, object]:
-        return {
-            "openid_provider": {
-                "issuer": OP_ENTITY,
-                "authorization_endpoint": f"{OP_ENTITY}/authorize",
-                "token_endpoint": f"{OP_ENTITY}/token",
-                "userinfo_endpoint": f"{OP_ENTITY}/userinfo",
-                "jwks": jose.public_jwks(KeySet([self.protocol_key])),
-            }
+        provider = {
+            "issuer": OP_ENTITY,
+            "authorization_endpoint": f"{OP_ENTITY}/authorize",
+            "token_endpoint": f"{OP_ENTITY}/token",
+            "userinfo_endpoint": f"{OP_ENTITY}/userinfo",
+            "jwks": jose.public_jwks(KeySet([self.protocol_key])),
         }
+        if self.with_end_session:
+            provider["end_session_endpoint"] = f"{OP_ENTITY}/logout"
+        return {"openid_provider": provider}
 
     def op_entity_configuration(self) -> str:
         claims = es.build_entity_configuration(
